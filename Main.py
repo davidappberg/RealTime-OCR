@@ -2,7 +2,7 @@ import argparse
 
 import OCR
 import Linguist
-
+import sys
 
 def main():
     """
@@ -29,8 +29,7 @@ def main():
 
     requiredNamed.add_argument('-t', '--tess_path',
                                help="path to the cmd root of tesseract install (see docs for further help)",
-                               metavar='', required=True)
-
+                               metavar='', default=r'C:\Program Files\Tesseract-OCR\tesseract.exe')
     # Optional:
     parser.add_argument('-c', '--crop', help="crop OCR area in pixels (two vals required): width height",
                         nargs=2, type=int, metavar='')
@@ -46,7 +45,9 @@ def main():
     parser.add_argument("-sl", "--show_langs", help="show list of tesseract (4.0+) supported langs",
                         action="store_true")
     parser.add_argument("-s", "--src", help="SRC video source for video capture",
-                        default=0, type=int)
+                        default=0, type=int) # --src ../text_from_images/video_test.mp4
+    #parser.add_argument("-s", "--src", help="SRC video source for video capture",
+    #                    default=0) # --src ../text_from_images/video_test.mp4
 
     args = parser.parse_args()
 
@@ -62,4 +63,17 @@ def main():
 
 
 if __name__ == '__main__':
+  try:
     main()  # '/usr/local/Cellar/tesseract/4.1.1/bin/tesseract'
+  except:
+    print("EXIT")
+    sys.exit(1)
+  ''' str = "42.560"
+  f = float(str)
+  i = int(f)
+  print(type(i))
+  if type(f) == float:
+    print("float")
+  
+  if type(float) != int:
+    print("not int")'''

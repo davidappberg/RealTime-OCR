@@ -13,7 +13,7 @@ import pytesseract
 import Linguist
 
 
-def tesseract_location(root):
+def tesseract_location(root = r'C:\Program Files\Tesseract-OCR\tesseract.exe'):
     """
     Sets the tesseract cmd root and exits is the root is not set correctly
 
@@ -167,6 +167,12 @@ class OCR:
         self.height = None
         self.crop_width = None
         self.crop_height = None
+        self.x_start = 0
+        self.y_start = 0
+        self.x_end = 479
+        self.y_end = 841
+        self.frame = None
+        self.iteration = 0
 
     def start(self):
         """
@@ -189,25 +195,34 @@ class OCR:
         :param language: language code(s) for detecting custom languages in pytesseract
         """
         self.language = language
+    
+    def set_frame(self, frame):
+        self.frame = frame
+
 
     def ocr(self):
         """
         Creates a process where frames are continuously grabbed from the exchange and processed by pytesseract OCR.
         Output data from pytesseract is stored in the self.boxes attribute.
         """
+        
         while not self.stopped:
-            if self.exchange is not None:  # Defends against an undefined VideoStream reference
-                frame = self.exchange.frame
+            #if self.exchange is not None:  # Defends against an undefined VideoStream reference
+            if self.frame is not None:  # Defends against an undefined VideoStream reference
+                #frame = self.exchange.frame
+                print("process frame")
+                frame = self.frame
 
                 # # # CUSTOM FRAME PRE-PROCESSING GOES HERE # # #
                 frame = cv2.cvtColor(frame, cv2.COLOR_RGB2GRAY)
                 # frame = cv2.adaptiveThreshold(frame, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 11, 2)
                 # # # # # # # # # # # # # # # # # # # #
 
-                frame = frame[self.crop_height:(self.height - self.crop_height),
-                              self.crop_width:(self.width - self.crop_width)]
+                frame = frame[self.y_start:self.y_end, self.x_start:self.x_end]
 
                 self.boxes = pytesseract.image_to_data(frame, lang=self.language)
+                print(self.boxes)
+                self.frame = None
 
     def set_dimensions(self, width, height, crop_width, crop_height):
         """
@@ -222,6 +237,21 @@ class OCR:
         self.height = height
         self.crop_width = crop_width
         self.crop_height = crop_height
+    
+    def set_crop_box(self, x_start, y_start, x_end, y_end):
+        """
+        Sets the dimensions attributes
+
+        :param width: Horizontal dimension of the VideoStream frame
+        :param height: Vertical dimension of the VideoSteam frame
+        :param crop_width: Horizontal crop amount if OCR is to be performed on a smaller area
+        :param crop_height: Vertical crop amount if OCR is to be performed on a smaller area
+        """
+        self.x_start = x_start
+        self.x_start = y_start
+        self.x_end = x_end
+        self.y_end = y_end
+
 
     def stop_process(self):
         """
@@ -240,13 +270,21 @@ def capture_image(frame, captures=0):
     :return: Updated number of captures. If capture param not used, returns 1 by default
     """
     cwd_path = os.getcwd()
-    Path(cwd_path + '/images').mkdir(parents=False, exist_ok=True)
-
+    print("cwd_path", cwd_path)
+    #pathPath = Path(cwd_path + '/images').mkdir(parents=False, exist_ok=True)
+    #print("pathlib Path: ", pathPath)
+    images_path = os.path.join(cwd_path, 'images')
     now = datetime.now()
     # Example: "OCR 2021-04-8 at 12:26:21-1.jpg"  ...Handles multiple captures taken in the same second
-    name = "OCR " + now.strftime("%Y-%m-%d") + " at " + now.strftime("%H:%M:%S") + '-' + str(captures + 1) + '.jpg'
+    name = "OCR_" + now.strftime("%Y-%m-%d") + "_at_" + now.strftime("%H-%M-%S") + '_' + str(captures + 1) + '.jpg'
+    #name = "frame_" + str(captures+1) + ".jpg"
     path = 'images/' + name
-    cv2.imwrite(path, frame)
+    #print("saved im path: ", path)
+    #new_path = os.path.join(images_path, name.replace(" ", "_"))
+    new_path = os.path.join(images_path, name)
+    print("new path: ", new_path)
+    saved = cv2.imwrite(new_path, frame)
+    print("image saved succesfully: ", saved)
     captures += 1
     print(name)
     return captures
@@ -309,30 +347,31 @@ def put_ocr_boxes(boxes, frame, height, crop_width=0, crop_height=0, view_mode=1
     :return: CV2 frame with bounding boxes, and output text string for detected text
     """
 
-    if view_mode not in [1, 2, 3, 4]:
-        raise Exception("A nonexistent view mode was selected. Only modes 1-4 are available")
+    #if view_mode not in [1, 2, 3, 4]:
+    #    raise Exception("A nonexistent view mode was selected. Only modes 1-4 are available")
 
     text = ''  # Initializing a string which will later be appended with the detected text
     if boxes is not None:  # Defends against empty data from tesseract image_to_data
+        print("boxes is not none")
         for i, box in enumerate(boxes.splitlines()):  # Next three lines turn data into a list
             box = box.split()
             if i != 0:
                 if len(box) == 12:
                     x, y, w, h = int(box[6]), int(box[7]), int(box[8]), int(box[9])
-                    conf = box[10]
+                    conf = int(float(box[10]))
                     word = box[11]
                     x += crop_width  # If tesseract was performed on a cropped image we need to 'convert' to full frame
                     y += crop_height
+                    conf_thresh, color = views(view_mode, conf)
 
-                    conf_thresh, color = views(view_mode, int(conf))
-
-                    if int(conf) > conf_thresh:
+                    if conf > conf_thresh:
                         cv2.rectangle(frame, (x, y), (w + x, h + y), color, thickness=1)
                         text = text + ' ' + word
 
         if text.isascii():  # CV2 is only able to display ascii chars at the moment
             cv2.putText(frame, text, (5, height - 5), cv2.FONT_HERSHEY_DUPLEX, 1, (200, 200, 200))
-
+    else:
+        print("no boxes found")
     return frame, text
 
 
@@ -460,3 +499,27 @@ def ocr_stream(crop: list[int, int], source: int = 0, view_mode: int = 1, langua
 
         cv2.imshow("realtime OCR", frame)
         cps1.increment()  # Incrementation for rate counter
+
+
+def custom_stream():
+    ocr = OCR().start()  # Starts optical character recognition in dedicated thread
+    print("OCR stream started")
+    print("Active threads: {}".format(threading.activeCount()))
+    #crop: list[int, int], source: int = 0, view_mode: int = 1, language=None
+    language = "eng"
+    #ocr.set_exchange(video_stream)
+    ocr.set_language(language)
+    ocr.set_dimensions(479, 841, 479, 841)  # Tells the OCR class where to perform OCR (if img is cropped)
+    cps1 = RateCounter().start()
+    lang_name = Linguist.language_string(language)
+    return ocr
+
+def custom_process_frame(ocr: OCR, frame, x_start, y_start, x_end, y_end):
+    #frame = put_rate(frame, cps1.rate())
+    #frame = put_language(frame, lang_name)
+    #frame = put_crop_box(frame, img_wi, img_hi, cropx, cropy)
+    ocr.set_crop_box(x_start, y_start, x_end, y_end)
+    ocr.set_frame(frame)
+    #result = ocr.boxes
+    frame_new, text = put_ocr_boxes(ocr.boxes, frame, 849)
+    return frame_new
