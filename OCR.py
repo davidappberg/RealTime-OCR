@@ -319,7 +319,7 @@ def put_ocr_boxes(boxes, frame, height, crop_width=0, crop_height=0, view_mode=1
             if i != 0:
                 if len(box) == 12:
                     x, y, w, h = int(box[6]), int(box[7]), int(box[8]), int(box[9])
-                    conf = box[10]
+                    conf = float(box[10])
                     word = box[11]
                     x += crop_width  # If tesseract was performed on a cropped image we need to 'convert' to full frame
                     y += crop_height

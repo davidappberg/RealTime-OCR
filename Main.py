@@ -29,7 +29,7 @@ def main():
 
     requiredNamed.add_argument('-t', '--tess_path',
                                help="path to the cmd root of tesseract install (see docs for further help)",
-                               metavar='', required=True)
+                               metavar='', default=r'C:\Program Files\Tesseract-OCR\tesseract.exe')
 
     # Optional:
     parser.add_argument('-c', '--crop', help="crop OCR area in pixels (two vals required): width height",
