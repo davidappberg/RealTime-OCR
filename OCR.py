@@ -9,6 +9,7 @@ from threading import Thread
 import cv2
 import numpy
 import pytesseract
+import re
 
 import Linguist
 
@@ -169,10 +170,12 @@ class OCR:
         self.crop_height = None
         self.x_start = 0
         self.y_start = 0
-        self.x_end = 479
-        self.y_end = 841
+        self.x_end = 479 # depends on device
+        self.y_end = 841 # depends on device
         self.frame = None
         self.iteration = 0
+        self.camera = True
+        self.display_frame = None
 
     def start(self):
         """
@@ -180,6 +183,7 @@ class OCR:
         :return: self
         """
         Thread(target=self.ocr, args=()).start()
+        #Thread(target=self.put_ocr_boxes_obj, args=()).start()
         return self
 
     def set_exchange(self, video_stream):
@@ -198,6 +202,7 @@ class OCR:
     
     def set_frame(self, frame):
         self.frame = frame
+        self.display_frame = frame
 
 
     def ocr(self):
@@ -207,22 +212,45 @@ class OCR:
         """
         
         while not self.stopped:
-            #if self.exchange is not None:  # Defends against an undefined VideoStream reference
-            if self.frame is not None:  # Defends against an undefined VideoStream reference
+            if self.frame is not None:
+                # streaming mode
+                #print("self.frame exists!\n")
                 #frame = self.exchange.frame
-                print("process frame")
+                #print("process frame\n")
                 frame = self.frame
 
                 # # # CUSTOM FRAME PRE-PROCESSING GOES HERE # # #
                 frame = cv2.cvtColor(frame, cv2.COLOR_RGB2GRAY)
                 # frame = cv2.adaptiveThreshold(frame, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 11, 2)
                 # # # # # # # # # # # # # # # # # # # #
-
+                #print("BEFORE: frame width: ", len(frame[0]), "  frame height: ", len(frame), "\n")
                 frame = frame[self.y_start:self.y_end, self.x_start:self.x_end]
+                #print("AFTER: frame width: ", len(frame[0]), "  frame height: ", len(frame), "\n")
 
+                t0 = time.time()
                 self.boxes = pytesseract.image_to_data(frame, lang=self.language)
-                print(self.boxes)
+                t = time.time() - t0
+                print("ocr time: {}".format(t))
+                #print("self.boxes:\n", self.boxes)
                 self.frame = None
+            
+            elif self.camera:
+                # default mode
+                print("self.frame is None!")
+                if self.exchange is not None: # Defends against an undefined VideoStream reference
+                    frame = self.exchange.frame
+                    print("frame exists?", frame)
+                    # # # CUSTOM FRAME PRE-PROCESSING GOES HERE # # #
+                    frame = cv2.cvtColor(frame, cv2.COLOR_RGB2GRAY)
+                    # frame = cv2.adaptiveThreshold(frame, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 11, 2)
+                    # # # # # # # # # # # # # # # # # # # #
+                    frame = frame[self.crop_height:(self.height - self.crop_height),
+                              self.crop_width:(self.width - self.crop_width)]
+
+                    self.boxes = pytesseract.image_to_data(frame, lang=self.language)
+            else:
+                pass
+                #print("self.frame is None")
 
     def set_dimensions(self, width, height, crop_width, crop_height):
         """
@@ -248,9 +276,55 @@ class OCR:
         :param crop_height: Vertical crop amount if OCR is to be performed on a smaller area
         """
         self.x_start = x_start
-        self.x_start = y_start
+        self.y_start = y_start
         self.x_end = x_end
         self.y_end = y_end
+    
+    def put_ocr_boxes_obj(self):
+        view_mode = 1
+        height = 841
+        #height, crop_width=0, crop_height=0,
+        text = ''  # Initializing a string which will later be appended with the detected text
+
+        
+        while not self.stopped:
+            boxes = self.boxes
+            frame = self.display_frame
+            if boxes is not None:  # Defends against empty data from tesseract image_to_data                
+                for i, box in enumerate(boxes.splitlines()):  # Next three lines turn data into a list
+                    box = box.split()
+                    print("box nbr: ", i, ":\n", box)
+                    if i != 0:
+                        if len(box) == 12:
+                            x, y, w, h = int(box[6]), int(box[7]), int(box[8]), int(box[9])
+                            conf = int(float(box[10]))
+                            word = box[11]
+                            #x += crop_width  # If tesseract was performed on a cropped image we need to 'convert' to full frame
+                            #y += crop_height
+                            conf_thresh, color = views(view_mode, conf)
+                            print("conf_tresh = ", conf_thresh)
+
+                            if conf+1 > conf_thresh:
+                                print("put rectangle")
+                                cv2.rectangle(frame, (x, y), (w + x, h + y), color, thickness=1)
+                                text = text + ' ' + word
+
+                if text.isascii():  # CV2 is only able to display ascii chars at the moment
+                    cv2.putText(frame, text, (5, height - 5), cv2.FONT_HERSHEY_DUPLEX, 1, (200, 200, 200))
+                
+                self.boxes = None
+
+            if frame is not None:
+                print("display frame")
+                cv2.imshow("display_frame", frame)
+                self.display_frame = None
+            else:
+                print("FRAME IS NONE")
+
+
+    
+    def clear_boxes(self):
+        self.boxes = None
 
 
     def stop_process(self):
@@ -351,8 +425,11 @@ def put_ocr_boxes(boxes, frame, height, crop_width=0, crop_height=0, view_mode=1
     #    raise Exception("A nonexistent view mode was selected. Only modes 1-4 are available")
 
     text = ''  # Initializing a string which will later be appended with the detected text
+    urls = []
+    if frame is None:
+        print("FRAME IS NONE IN put_ocr_boxes")
+    
     if boxes is not None:  # Defends against empty data from tesseract image_to_data
-        print("boxes is not none")
         for i, box in enumerate(boxes.splitlines()):  # Next three lines turn data into a list
             box = box.split()
             if i != 0:
@@ -363,16 +440,31 @@ def put_ocr_boxes(boxes, frame, height, crop_width=0, crop_height=0, view_mode=1
                     x += crop_width  # If tesseract was performed on a cropped image we need to 'convert' to full frame
                     y += crop_height
                     conf_thresh, color = views(view_mode, conf)
-
+                    #print("conf_tresh = ", conf_thresh) # = 75
+                    #print("box nbr: ", i, ":\n", box)
+                    is_url = re.match('http[s]?://(?:[a-zA-Z]|[0-9]|[.]|[!*\(\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+', word)
+                    is_url2 = False
+                    is_url3 = False
+                    if is_url: print("is_url_1 True")
+                    if is_url2: print("is_url_2 True")
+                    if is_url3: print("is_url_3 True")
+                    if '.' in word and not ' ' in word: print("dot wihtout space")
+                    if is_url or is_url2 or is_url3 and '.' in word and not ' ' in word:
+                        #print("VALID URL!")
+                        #cv2.rectangle(frame, (x, y), (w + x, h + y), color, thickness=1)
+                        urls.append(box)
                     if conf > conf_thresh:
-                        cv2.rectangle(frame, (x, y), (w + x, h + y), color, thickness=1)
+                        #cv2.rectangle(frame, (x, y), (w + x, h + y), color, thickness=1)
                         text = text + ' ' + word
 
         if text.isascii():  # CV2 is only able to display ascii chars at the moment
             cv2.putText(frame, text, (5, height - 5), cv2.FONT_HERSHEY_DUPLEX, 1, (200, 200, 200))
+        
     else:
-        print("no boxes found")
-    return frame, text
+        pass
+        #print("no boxes found")
+    
+    return frame, text, urls
 
 
 def put_crop_box(frame: numpy.ndarray, width: int, height: int, crop_width: int, crop_height: int):
@@ -424,6 +516,7 @@ def put_language(frame: numpy.ndarray, language_string: str) -> numpy.ndarray:
 
 
 def ocr_stream(crop: list[int, int], source: int = 0, view_mode: int = 1, language=None):
+    print("DEFAULT OCR STREAM")
     """
     Begins the video stream and text OCR in two threads, then shows the video in a CV2 frame with the OCR
     boxes overlaid in real-time.
@@ -502,6 +595,7 @@ def ocr_stream(crop: list[int, int], source: int = 0, view_mode: int = 1, langua
 
 
 def custom_stream():
+    print("Starting ocr stream...")
     ocr = OCR().start()  # Starts optical character recognition in dedicated thread
     print("OCR stream started")
     print("Active threads: {}".format(threading.activeCount()))
@@ -520,6 +614,11 @@ def custom_process_frame(ocr: OCR, frame, x_start, y_start, x_end, y_end):
     #frame = put_crop_box(frame, img_wi, img_hi, cropx, cropy)
     ocr.set_crop_box(x_start, y_start, x_end, y_end)
     ocr.set_frame(frame)
+
+    #print("ocr.boxes = ", ocr.boxes)
+    #print("ocr.boxes = {}".format(ocr.boxes))
     #result = ocr.boxes
-    frame_new, text = put_ocr_boxes(ocr.boxes, frame, 849)
-    return frame_new
+    #frame = put_crop_box(frame, 479, 841, cropx, cropy)
+    #frame_new, text = put_ocr_boxes(ocr.boxes, frame, 849)
+    #print("text: ", text)
+    return ocr

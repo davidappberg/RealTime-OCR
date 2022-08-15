@@ -7,9 +7,13 @@ import struct
 import sys
 import OCR
 import Linguist
+import time
 
 font = cv2.FONT_HERSHEY_COMPLEX
 MAX_DGRAM = 2**16
+
+def tm():
+    return time.time()
 
 def dump_buffer(s):
     """ Emptying buffer frame """
@@ -50,6 +54,7 @@ def main():
     #height = 0
     img_container = np.zeros([height,width,3],dtype=np.uint8)
     img_blank = np.zeros([height,width,3],dtype=np.uint8)
+    img_res = np.zeros([height,width,3],dtype=np.uint8)
     #cv2.imshow("blank", img_blank)
     its = 0
     while True:
@@ -62,79 +67,100 @@ def main():
         seg, addr = s.recvfrom(MAX_DGRAM)
         #print("seg len:", len(seg))
         if (seg):
-            if (dat != b''):
-                #print("type of seg", type(seg))
-                #print("dat len: ", len(dat))
-                meta = dat[0:19]
-                #x_start = struct.unpack("H", meta[11:13])[0]
-                #y_start = struct.unpack("H", meta[13:15])[0]
-                #print("x_start=", x_start, "  y_start=", y_start)
-                coords = np.frombuffer(meta[11:15], dtype=np.uint16)
-                x_start = coords[0]
-                y_start = coords[1]
-                buff = np.frombuffer(dat[19:], dtype=np.uint8)
-                buff_len = len(buff)
-                #print("buff first: ", buff[0:30])
-                #print("buff last: ", buff[buff_len-30:buff_len])
-                img = cv2.imdecode(buff, 1)
+            dat = seg
+            #print("type of seg", type(seg))
+            #print("dat len: ", len(dat))
+            meta = dat[0:19]
+            #x_start = struct.unpack("H", meta[11:13])[0]
+            #y_start = struct.unpack("H", meta[13:15])[0]
+            #print("x_start=", x_start, "  y_start=", y_start)
+            coords = np.frombuffer(meta[11:15], dtype=np.uint16)
+            x_start = coords[0]
+            y_start = coords[1]
+            buff = np.frombuffer(dat[19:], dtype=np.uint8)
+            buff_len = len(buff)
+            #print("buff first: ", buff[0:30])
+            #print("buff last: ", buff[buff_len-30:buff_len])
+            img = cv2.imdecode(buff, 1)
+            
+            '''if buff_len > largest_size:
+                largest_size = buff_len
+                img_container = buff
+            else:
+                img_container[0:buff_len] = buff'''
+            
+            if img is not None:
+                img_height = len(img)
+                img_width = len(img[0])
+                x_end = x_start + img_width
+                y_end = y_start + img_height
                 
-                '''if buff_len > largest_size:
-                    largest_size = buff_len
-                    img_container = buff
-                else:
-                    img_container[0:buff_len] = buff'''
+                '''if img_height+y_start > height:
+                    height = img_height+y_start
+                    print("test resize")
+                    img_container[height:img_height+y_start] = img
+                    print("resize success")
+                if img_width+x_start> width:
+                    width = img_width+x_start'''
                 
-                if img is not None:
-                    img_height = len(img)
-                    img_width = len(img[0])
-                    x_end = x_start + img_width
-                    y_end = y_start + img_height
-                    #print("x_start =", x_start, "  y_start =", y_start)
-                    #print("x_end =", x_end, "  y_end =", y_end)
-                    #print("width =", img_width, "  height =", img_height)
-                    '''if img_height+y_start > height:
-                        height = img_height+y_start
-                        print("test resize")
-                        img_container[height:img_height+y_start] = img
-                        print("resize success")
-                    if img_width+x_start> width:
-                        width = img_width+x_start'''
-                    
-                    img_container[y_start:y_end, x_start:x_end] = img
-                    #ocr: OCR, frame, x_start, y_start, x_end, y_end
-                    #OCR.custom_process_frame(ocr, img_container, x_start, y_start, x_end, y_end)
-                    
-                    if its == 1:
-                        img_container = OCR.custom_process_frame(ocr, img_container, 0, 0, 479, 841)
-                    elif its % 10 == 0:
-                        #pass
-                        img_container = OCR.custom_process_frame(ocr, img_container, x_start, y_start, x_end, y_end)
-                    
-                    
-                    cv2.imshow("img_container", img_container)
+                img_container[y_start:y_end, x_start:x_end] = img
+                img_res[y_start:y_end, x_start:x_end] = img
+                #ocr: OCR, frame, x_start, y_start, x_end, y_end
+                #OCR.custom_process_frame(ocr, img_container, x_start, y_start, x_end, y_end)
+                ocr.set_crop_box(x_start, y_start, x_end, y_end)
+                ocr.set_frame(img_container.copy())
+                if its % 10 == 0:
+                    print("its = ", its)
+                    #ocr.set_crop_box(x_start, y_start, x_end, y_end)
+                    #ocr.set_frame(img_container.copy())
+                    #OCR.custom_process_frame(ocr, img_container, 0, 0, 479, 841)
+                    #frame_new, text = OCR.put_ocr_boxes(ocr.boxes, frame, 849)
+                
+                ocr_boxes = ocr.boxes
+                if ocr_boxes is not None:
+                    print("ocr_boxes len = {}".format(len(ocr_boxes)))
+                    img_res, text, urls = OCR.put_ocr_boxes(ocr.boxes, img_res, 849)
+                    #cv2.imshow("found text", img_res)
+                    print("found text: ", text)
+                    print("found urls: ", urls)
+                    ocr.clear_boxes()
 
-                    #cv2.imshow('frame', img_container)
-                    #cv2.putText(img_blank, "x", (x_start, y_start), font, 0.5, (255,0,0), 2)
-                    #cv2.imshow("img_container", img_container)
-                    #break
-                    #print('success')
+                if its == 30:
+                    pass
+                    #t0_ocr = tm()
+                    #cv2.imshow("img before ocr", img_container.copy())
+                    #img_container = OCR.custom_process_frame(ocr, img_container, 0, 0, 479, 841)
+                    #cv2.imshow("img after ocr", img_container)
+                    #cv2.waitKey(0)
+                    #t_ocr = tm() - t0_ocr
+                    #print("ocr time: ", t_ocr)
                 else:
                     pass
-                    print("fail")
-                '''try:
-                    #img = cv2.imdecode(buff, 1)
-                    #imgRot = cv2.rotate(img, cv2.cv2.ROTATE_90_COUNTERCLOCKWISE)
-                    #cv2.imshow('frame', img)
-                    #print(img.shape)
-                    #cam.send(img)
-                    #cam.sleep_until_next_frame()
-                    print("success")
-                except:
-                    print("fail")
-                    pass'''
+                    #img_container = OCR.custom_process_frame(ocr, img_container, x_start, y_start, x_end, y_end)
+                
+                #cv2.imshow("img_container", img_container)
 
-            dat = b''
-            dat += seg
+                #cv2.imshow('frame', img_container)
+                #cv2.putText(img_blank, "x", (x_start, y_start), font, 0.5, (255,0,0), 2)
+                #cv2.imshow("img_container", img_container)
+                #break
+                #print('success')
+            else:
+                #pass
+                print("received img is None")
+            
+            '''try:
+                #img = cv2.imdecode(buff, 1)
+                #imgRot = cv2.rotate(img, cv2.cv2.ROTATE_90_COUNTERCLOCKWISE)
+                #cv2.imshow('frame', img)
+                #print(img.shape)
+                #cam.send(img)
+                #cam.sleep_until_next_frame()
+                print("success")
+            except:
+                print("fail")
+                pass'''
+
         else:
             dat += seg
             if fail_count > 50:
